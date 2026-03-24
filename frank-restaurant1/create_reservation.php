@@ -181,6 +181,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $coupon_code = null; // Invalid coupon, don't store
                 }
             }
+            
+            // Process loyalty reward redemption
+            $loyalty_reward_id = intval($_POST['loyalty_reward_id'] ?? 0);
+            $loyalty_discount = 0;
+            $loyalty_reward = null;
+            
+            if ($loyalty_reward_id && $res_user_id) {
+                $reward = db()->fetchOne(
+                    "SELECT * FROM loyalty_rewards 
+                     WHERE id = ? AND is_active = 1 
+                     AND (expires_at IS NULL OR expires_at > NOW())",
+                    [$loyalty_reward_id]
+                );
+                
+                if ($reward) {
+                    $user_points = db()->fetchOne("SELECT loyalty_points FROM users WHERE user_id = ?", [$res_user_id])['loyalty_points'] ?? 0;
+                    
+                    if ($user_points >= $reward['points_required']) {
+                        // Check usage limits
+                        if ($reward['max_uses_per_customer']) {
+                            $usage_count = db()->fetchOne(
+                                "SELECT COUNT(*) as cnt FROM loyalty_points_transactions lpt
+                                 JOIN orders o ON lpt.reference_id = o.order_id
+                                 WHERE lpt.user_id = ? AND lpt.reference_type = 'order' 
+                                 AND o.promo_code = ?",
+                                [$res_user_id, 'LOYALTY_' . $reward['id']]
+                            )['cnt'];
+                            
+                            if ($usage_count >= $reward['max_uses_per_customer']) {
+                                $loyalty_reward_id = null; // Can't use again
+                            }
+                        }
+                        
+                        if ($loyalty_reward_id) {
+                            $loyalty_reward = $reward;
+                            // Points will be deducted when pre-order is created
+                        }
+                    } else {
+                        $loyalty_reward_id = null; // Not enough points
+                    }
+                } else {
+                    $loyalty_reward_id = null; // Invalid reward
+                }
+            }
 
             // Create reservation
             $rid = db()->insert(
@@ -189,6 +233,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
 
         if ($rid) {
+            // Award loyalty points for reservation
+            if ($res_user_id) {
+                $reservation_points = 10; // 10 points for making a reservation
+                
+                // Update user's loyalty points
+                db()->execute("UPDATE users SET loyalty_points = loyalty_points + ? WHERE user_id = ?", [$reservation_points, $res_user_id]);
+                
+                // Record loyalty transaction
+                db()->insert(
+                    "INSERT INTO loyalty_points_transactions (user_id, points, transaction_type, reference_type, reference_id, description) VALUES (?,?,?,?,?,?)",
+                    [$res_user_id, $reservation_points, 'earned', 'reservation', $rid, "Points earned for reservation #{$rid}"]
+                );
+            }
             // Auto-update table status to reserved if a table was assigned
             if ($table_id) {
                 db()->execute("UPDATE restaurant_tables SET status='reserved' WHERE table_id=?", [$table_id]);
@@ -241,6 +298,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                     
+                    // Apply loyalty reward discount
+                    if ($loyalty_reward && $loyalty_reward_id) {
+                        $loyalty_discount = 0;
+                        if ($loyalty_reward['reward_type'] === 'discount_percentage') {
+                            $loyalty_discount = $subtotal * ($loyalty_reward['reward_value'] / 100);
+                        } elseif ($loyalty_reward['reward_type'] === 'discount_fixed') {
+                            $loyalty_discount = $loyalty_reward['reward_value'];
+                        }
+                        
+                        if ($loyalty_discount > 0) {
+                            $discount += $loyalty_discount;
+                            
+                            // Deduct loyalty points
+                            db()->execute("UPDATE users SET loyalty_points = loyalty_points - ? WHERE user_id = ?", [$loyalty_reward['points_required'], $res_user_id]);
+                            
+                            // Record loyalty transaction
+                            db()->insert(
+                                "INSERT INTO loyalty_points_transactions (user_id, points, transaction_type, reference_type, reference_id, description) VALUES (?,?,?,?,?,?)",
+                                [$res_user_id, -$loyalty_reward['points_required'], 'redeemed', 'order', $order_id, "Redeemed reward: {$loyalty_reward['name']}"]
+                            );
+                        }
+                    }
+                    
                     $tax = ($subtotal - $discount) * 0.08;
                     $total = $subtotal - $discount + $tax;
                     
@@ -261,6 +341,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     [$order_id, $item_id, $qty, $menu_item['price']]
                                 );
                             }
+                        }
+                    }
+                    
+                    // Award loyalty points for pre-order
+                    if ($res_user_id) {
+                        $order_points = intval($subtotal / 10); // 1 point per ₱10 spent
+                        if ($order_points > 0) {
+                            // Update user's loyalty points
+                            db()->execute("UPDATE users SET loyalty_points = loyalty_points + ? WHERE user_id = ?", [$order_points, $res_user_id]);
+                            
+                            // Record loyalty transaction
+                            db()->insert(
+                                "INSERT INTO loyalty_points_transactions (user_id, points, transaction_type, reference_type, reference_id, description) VALUES (?,?,?,?,?,?)",
+                                [$res_user_id, $order_points, 'earned', 'order', $order_id, "Points earned for pre-order #{$order_id}"]
+                            );
                         }
                     }
                 }
@@ -370,6 +465,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div id="couponMessage" class="form-text mt-1"></div>
             </div>
+
+            <?php if($role === 'customer' && isLoggedIn()): ?>
+            <div class="form-group">
+                <label>🎁 Loyalty Points Redemption (Optional)</label>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Your Available Points:</span>
+                    <span class="badge bg-primary" id="userPoints">Loading...</span>
+                </div>
+                <select name="loyalty_reward_id" class="form-control" id="loyaltyRewardSelect">
+                    <option value="">Select a reward to redeem...</option>
+                </select>
+                <div id="loyaltyMessage" class="form-text mt-1"></div>
+            </div>
+            <?php endif; ?>
 
             <!-- Food Pre-order Section -->
             <div class="card mb-3" style="background:var(--bg-tertiary);">
@@ -685,6 +794,83 @@ function validateCoupon() {
         console.error('Coupon validation error:', error);
     });
 }
+
+// Load user loyalty points and available rewards
+function loadLoyaltyData() {
+    // Load user points
+    fetch('ajax_loyalty.php?action=get_points')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('userPoints').textContent = data.points + ' points';
+            loadAvailableRewards(data.points);
+        }
+    })
+    .catch(error => {
+        console.error('Error loading loyalty data:', error);
+        document.getElementById('userPoints').textContent = 'Error';
+    });
+}
+
+// Load available rewards based on user points
+function loadAvailableRewards(userPoints) {
+    fetch('ajax_loyalty.php?action=get_rewards&points=' + userPoints)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const select = document.getElementById('loyaltyRewardSelect');
+            select.innerHTML = '<option value="">Select a reward to redeem...</option>';
+            
+            data.rewards.forEach(reward => {
+                const option = document.createElement('option');
+                option.value = reward.id;
+                option.textContent = `${reward.name} (${reward.points_required} points)`;
+                select.appendChild(option);
+            });
+            
+            if (data.rewards.length === 0) {
+                select.innerHTML = '<option value="">No rewards available</option>';
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error loading rewards:', error);
+    });
+}
+
+// Handle reward selection change
+document.getElementById('loyaltyRewardSelect')?.addEventListener('change', function() {
+    const rewardId = this.value;
+    const messageDiv = document.getElementById('loyaltyMessage');
+    
+    if (!rewardId) {
+        messageDiv.innerHTML = '';
+        return;
+    }
+    
+    messageDiv.innerHTML = '<span style="color: #007bff;">Loading reward details...</span>';
+    
+    fetch('ajax_loyalty.php?action=get_reward_details&id=' + rewardId)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            messageDiv.innerHTML = `<span style="color: #28a745;">✅ ${data.reward.description} - This will be applied to your pre-order</span>`;
+        } else {
+            messageDiv.innerHTML = `<span style="color: #dc3545;">❌ ${data.message}</span>`;
+        }
+    })
+    .catch(error => {
+        messageDiv.innerHTML = '<span style="color: #dc3545;">Error loading reward details</span>';
+        console.error('Error loading reward details:', error);
+    });
+});
+
+// Initialize loyalty data when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('userPoints')) {
+        loadLoyaltyData();
+    }
+});
 
 // Update table availability when party size changes
 document.querySelector('input[name="party_size"]')?.addEventListener('change', function() {

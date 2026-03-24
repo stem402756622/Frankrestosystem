@@ -74,6 +74,7 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
             <?php if($role === 'customer'): ?>
                 <?php navItem('my_reservations.php', '📋', 'My Reservations', $currentPage); ?>
                 <?php navItem('favorites.php', '❤️', 'Favorites', $currentPage); ?>
+                <?php navItem('loyalty.php', '🎯', 'Loyalty', $currentPage); ?>
             <?php else: ?>
                 <?php if(in_array($role, ['admin','manager'])): ?>
                     <?php navItem('admin_menu.php', '📋', 'Menu', $currentPage); ?>

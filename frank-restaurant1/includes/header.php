@@ -63,9 +63,13 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
 
         <div class="sidebar-nav">
             <div class="nav-section-title">Main</div>
-            <?php navItem('dashboard.php',         '📊', 'Dashboard',    $currentPage); ?>
-            <?php navItem('reservations.php',  '📅', 'Reservations', $currentPage, $pendingCount); ?>
-            <?php navItem('tables.php',        '🪑', 'Tables',       $currentPage); ?>
+            <?php if(!in_array($role, ['staff'])): ?>
+                <?php navItem('dashboard.php',         '📊', 'Dashboard',    $currentPage); ?>
+            <?php endif; ?>
+            <?php if(!in_array($role, ['manager'])): ?>
+                <?php navItem('reservations.php',  '📅', 'Reservations', $currentPage, $pendingCount); ?>
+                <?php navItem('tables.php',        '🪑', 'Tables',       $currentPage); ?>
+            <?php endif; ?>
 
             <?php if(hasAccess('orders')): ?>
             <div class="nav-section-title">Operations</div>

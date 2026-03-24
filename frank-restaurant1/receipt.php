@@ -326,7 +326,240 @@ $items = db()->fetchAll(
     </div>
     
     <div class="no-print">
+        <div class="action-buttons">
+            <button class="action-btn receipt-btn" onclick="window.print()">🧾 Receipt</button>
+            <button class="action-btn qr-btn" onclick="showQRCode()">📱 QR Details</button>
+            <button class="action-btn invoice-btn" onclick="window.open('invoice.php?id=<?= $oid ?>', '_blank')">📄 Invoice</button>
+        </div>
         <button class="print-btn" onclick="window.print()">🖨️ Print Receipt</button>
     </div>
+    
+    <!-- QR Code Modal -->
+    <div id="qrModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4>📱 Scan QR Code</h4>
+                <button onclick="closeQRModal()" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="qr-info">
+                    <h5>Order Details</h5>
+                    <p>Scan to view complete order information</p>
+                </div>
+                <div class="qr-code-container">
+                    <img id="qrImage" src="" alt="Order QR Code" style="width: 200px; height: 200px; border: 2px solid #ddd; border-radius: 10px;">
+                </div>
+                <div class="qr-actions">
+                    <button onclick="simulateQRScan()" class="btn btn-info">📱 Test QR Scan</button>
+                    <button onclick="closeQRModal()" class="btn btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <style>
+    .action-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    
+    .action-btn {
+        padding: 12px 20px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .receipt-btn {
+        background: #28a745;
+        color: white;
+    }
+    
+    .receipt-btn:hover {
+        background: #218838;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    
+    .qr-btn {
+        background: #17a2b8;
+        color: white;
+    }
+    
+    .qr-btn:hover {
+        background: #138496;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    
+    .invoice-btn {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .invoice-btn:hover {
+        background: #5a6268;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    
+    .modal-content {
+        background: white;
+        border-radius: 15px;
+        padding: 0;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+        border-bottom: 1px solid #eee;
+        background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        color: white;
+        border-radius: 15px 15px 0 0;
+    }
+    
+    .modal-header h4 {
+        margin: 0;
+        font-size: 18px;
+    }
+    
+    .close-btn {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: white;
+        opacity: 0.8;
+    }
+    
+    .close-btn:hover {
+        opacity: 1;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .qr-info {
+        margin-bottom: 20px;
+    }
+    
+    .qr-info h5 {
+        color: #17a2b8;
+        margin-bottom: 5px;
+    }
+    
+    .qr-info p {
+        color: #666;
+        margin: 0;
+        font-size: 14px;
+    }
+    
+    .qr-actions {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+    }
+    
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-info {
+        background: #17a2b8;
+        color: white;
+    }
+    
+    .btn-info:hover {
+        background: #138496;
+    }
+    
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .btn-secondary:hover {
+        background: #5a6268;
+    }
+    
+    @media (max-width: 600px) {
+        .action-buttons {
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .action-btn {
+            width: 100%;
+            max-width: 250px;
+        }
+    }
+    </style>
+    
+    <script>
+    function showQRCode() {
+        // Generate QR code for order details
+        const orderId = '<?= $oid ?>';
+        const qrData = `frank_restaurant_order:${orderId}:${Date.now()}`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
+        
+        document.getElementById('qrImage').src = qrUrl;
+        document.getElementById('qrModal').style.display = 'flex';
+        
+        // Store the URL for QR scanning
+        window.currentQRUrl = `qr_details.php?order_id=${orderId}`;
+    }
+    
+    function closeQRModal() {
+        document.getElementById('qrModal').style.display = 'none';
+    }
+    
+    function simulateQRScan() {
+        if (window.currentQRUrl) {
+            window.open(window.currentQRUrl, '_blank');
+        }
+    }
+    
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('qrModal');
+        if (event.target == modal) {
+            closeQRModal();
+        }
+    }
+    </script>
 </body>
 </html>

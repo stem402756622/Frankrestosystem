@@ -227,10 +227,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Create reservation
-            $rid = db()->insert(
-                "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration, coupon_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration, $coupon_code]
-            );
+            try {
+                // Check if coupon_code column exists
+                $column_check = db()->fetchOne("SHOW COLUMNS FROM reservations LIKE 'coupon_code'");
+                
+                if ($column_check) {
+                    // Column exists, include coupon_code in insert
+                    $rid = db()->insert(
+                        "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration, coupon_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration, $coupon_code]
+                    );
+                } else {
+                    // Column doesn't exist, create it and then insert without coupon_code
+                    db()->execute("ALTER TABLE reservations ADD COLUMN coupon_code VARCHAR(50) NULL AFTER estimated_duration");
+                    $rid = db()->insert(
+                        "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration]
+                    );
+                }
+            } catch (Exception $e) {
+                // Fallback: insert without coupon_code if column operations fail
+                $rid = db()->insert(
+                    "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration]
+                );
+            }
 
         if ($rid) {
             // Award loyalty points for reservation
@@ -325,10 +346,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $total = $subtotal - $discount + $tax;
                     
                     // Create preorder order
-                    $order_id = db()->insert(
-                        "INSERT INTO orders (user_id, table_id, reservation_id, status, subtotal, discount_amount, tax, total, notes, promo_code) VALUES (?, ?, ?, 'preorder', ?, ?, ?, ?, ?, ?)",
-                        [$res_user_id, $table_id ?: null, $rid, $subtotal, $discount, $tax, $total, $preorder_notes, $coupon_code]
-                    );
+                    try {
+                        // Check if required columns exist and create them if needed
+                        $columns_to_check = ['discount_amount', 'promo_code'];
+                        $existing_columns = [];
+                        $missing_columns = [];
+                        
+                        foreach ($columns_to_check as $column) {
+                            $column_check = db()->fetchOne("SHOW COLUMNS FROM orders LIKE '$column'");
+                            if ($column_check) {
+                                $existing_columns[] = $column;
+                            } else {
+                                $missing_columns[] = $column;
+                            }
+                        }
+                        
+                        // Create missing columns
+                        foreach ($missing_columns as $column) {
+                            try {
+                                if ($column === 'discount_amount') {
+                                    db()->execute("ALTER TABLE orders ADD COLUMN discount_amount DECIMAL(10,2) DEFAULT 0.00 AFTER subtotal");
+                                } elseif ($column === 'promo_code') {
+                                    db()->execute("ALTER TABLE orders ADD COLUMN promo_code VARCHAR(50) NULL AFTER notes");
+                                }
+                                $existing_columns[] = $column;
+                            } catch (Exception $e) {
+                                // Column creation failed, continue without it
+                                error_log("Failed to create column $column: " . $e->getMessage());
+                            }
+                        }
+                        
+                        // Build dynamic INSERT query based on available columns
+                        $insert_fields = ['user_id', 'table_id', 'reservation_id', 'status', 'subtotal', 'tax', 'total', 'notes'];
+                        $insert_values = [$res_user_id, $table_id ?: null, $rid, 'preorder', $subtotal, $tax, $total, $preorder_notes];
+                        $insert_placeholders = ['?', '?', '?', '?', '?', '?', '?', '?'];
+                        
+                        if (in_array('discount_amount', $existing_columns)) {
+                            $insert_fields[] = 'discount_amount';
+                            $insert_values[] = $discount;
+                            $insert_placeholders[] = '?';
+                        }
+                        
+                        if (in_array('promo_code', $existing_columns)) {
+                            $insert_fields[] = 'promo_code';
+                            $insert_values[] = $coupon_code;
+                            $insert_placeholders[] = '?';
+                        }
+                        
+                        // Execute the dynamic insert
+                        $order_id = db()->insert(
+                            "INSERT INTO orders (" . implode(', ', $insert_fields) . ") VALUES (" . implode(', ', $insert_placeholders) . ")",
+                            $insert_values
+                        );
+                        
+                    } catch (Exception $e) {
+                        // Ultimate fallback: minimal insert with just essential fields
+                        try {
+                            $order_id = db()->insert(
+                                "INSERT INTO orders (user_id, table_id, reservation_id, status, subtotal, tax, total, notes) VALUES (?, ?, ?, 'preorder', ?, ?, ?, ?)",
+                                [$res_user_id, $table_id ?: null, $rid, $subtotal, $tax, $total, $preorder_notes]
+                            );
+                        } catch (Exception $e2) {
+                            // Last resort: insert without table_id and reservation_id
+                            $order_id = db()->insert(
+                                "INSERT INTO orders (user_id, status, subtotal, tax, total, notes) VALUES (?, 'preorder', ?, ?, ?, ?)",
+                                [$res_user_id, $subtotal, $tax, $total, $preorder_notes]
+                            );
+                        }
+                    }
                     
                     // Add order items
                     foreach ($items as $item_id) {

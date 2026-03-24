@@ -4,6 +4,20 @@ $pageSubtitle = 'Account settings';
 require_once 'includes/header.php';
 
 $user = db()->fetchOne("SELECT * FROM users WHERE user_id=?", [$user_id]);
+
+// Check if profile_picture column exists, create if not
+try {
+    $column_check = db()->fetchOne("SHOW COLUMNS FROM users LIKE 'profile_picture'");
+    if (!$column_check) {
+        db()->execute("ALTER TABLE users ADD COLUMN profile_picture VARCHAR(255) NULL AFTER email");
+        // Refresh user data after adding column
+        $user = db()->fetchOne("SELECT * FROM users WHERE user_id=?", [$user_id]);
+    }
+} catch (Exception $e) {
+    // Column check failed, continue without profile picture functionality
+    error_log("Profile picture column check failed: " . $e->getMessage());
+}
+
 $prefs = db()->fetchAll("SELECT * FROM customer_preferences WHERE user_id=?", [$user_id]);
 
 $error = $success_msg = '';
@@ -19,7 +33,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$full_name || !$email) {
             $error = 'Name and email are required.';
         } else {
-            db()->execute("UPDATE users SET full_name=?, phone=?, email=? WHERE user_id=?", [$full_name, $phone, $email, $user_id]);
+            // Handle profile picture upload
+            $profile_picture = $user['profile_picture'] ?? null;
+            if (isset($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
+                $file = $_FILES['profile_picture'];
+                $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+                $max_size = 5 * 1024 * 1024; // 5MB
+                
+                if (!in_array($file['type'], $allowed_types)) {
+                    $error = 'Only JPEG, PNG, GIF, and WebP images are allowed.';
+                } elseif ($file['size'] > $max_size) {
+                    $error = 'Profile picture must be less than 5MB.';
+                } else {
+                    // Create uploads directory if it doesn't exist
+                    $upload_dir = 'uploads/profile_pictures/';
+                    if (!is_dir($upload_dir)) {
+                        mkdir($upload_dir, 0755, true);
+                    }
+                    
+                    // Generate unique filename
+                    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+                    $filename = 'profile_' . $user_id . '_' . time() . '.' . $extension;
+                    $upload_path = $upload_dir . $filename;
+                    
+                    // Move uploaded file
+                    if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+                        // Delete old profile picture if exists
+                        if ($user['profile_picture'] && file_exists($upload_dir . $user['profile_picture'])) {
+                            unlink($upload_dir . $user['profile_picture']);
+                        }
+                        
+                        $profile_picture = $filename;
+                    } else {
+                        $error = 'Failed to upload profile picture.';
+                    }
+                }
+            }
+            
+            // Update profile with or without profile picture
+            try {
+                // Check if profile_picture column exists
+                $column_check = db()->fetchOne("SHOW COLUMNS FROM users LIKE 'profile_picture'");
+                if ($column_check) {
+                    db()->execute("UPDATE users SET full_name=?, phone=?, email=?, profile_picture=? WHERE user_id=?", 
+                                [$full_name, $phone, $email, $profile_picture, $user_id]);
+                } else {
+                    db()->execute("UPDATE users SET full_name=?, phone=?, email=? WHERE user_id=?", 
+                                [$full_name, $phone, $email, $user_id]);
+                }
+            } catch (Exception $e) {
+                // Fallback update without profile picture
+                db()->execute("UPDATE users SET full_name=?, phone=?, email=? WHERE user_id=?", 
+                            [$full_name, $phone, $email, $user_id]);
+            }
+            
             $_SESSION['full_name'] = $full_name;
             redirect('profile.php', 'Profile updated successfully!', 'success');
         }
@@ -65,9 +132,15 @@ $doneCount = db()->fetchOne("SELECT COUNT(*) as cnt FROM reservations WHERE user
     <div>
         <div class="card animate-in mb-3">
             <div style="text-align:center;padding:1.5rem 0 1rem;">
-                <div class="user-avatar float" style="width:80px;height:80px;font-size:2rem;margin:0 auto 1rem;border-radius:50%;border:3px solid var(--accent-primary);">
-                    <?= $initials ?>
-                </div>
+                <?php if ($user['profile_picture']): ?>
+                    <img src="uploads/profile_pictures/<?= htmlspecialchars($user['profile_picture']) ?>" 
+                         alt="Profile Picture" 
+                         style="width:80px;height:80px;border-radius:50%;border:3px solid var(--accent-primary);object-fit:cover;margin:0 auto 1rem;display:block;">
+                <?php else: ?>
+                    <div class="user-avatar float" style="width:80px;height:80px;font-size:2rem;margin:0 auto 1rem;border-radius:50%;border:3px solid var(--accent-primary);">
+                        <?= $initials ?>
+                    </div>
+                <?php endif; ?>
                 <h3 style="font-size:1.3rem;margin-bottom:0.25rem;"><?= htmlspecialchars($user['full_name']) ?></h3>
                 <div class="text-muted text-sm">@<?= htmlspecialchars($user['username']) ?></div>
                 <div class="mt-2">
@@ -122,8 +195,32 @@ $doneCount = db()->fetchOne("SELECT COUNT(*) as cnt FROM reservations WHERE user
             <div class="card-header">
                 <h3 class="card-title">✏️ Edit Profile</h3>
             </div>
-            <form method="POST">
+            <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="update_profile">
+                
+                <!-- Profile Picture Upload -->
+                <div class="form-group">
+                    <label>Profile Picture</label>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <?php if ($user['profile_picture']): ?>
+                            <img src="uploads/profile_pictures/<?= htmlspecialchars($user['profile_picture']) ?>" 
+                                 alt="Current Profile Picture" 
+                                 style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid var(--border-color);">
+                        <?php else: ?>
+                            <div class="user-avatar float" style="width:60px;height:60px;font-size:1.5rem;border-radius:50%;border:2px solid var(--border-color);">
+                                <?= $initials ?>
+                            </div>
+                        <?php endif; ?>
+                        <div style="flex: 1;">
+                            <input type="file" name="profile_picture" class="form-control" accept="image/jpeg,image/png,image/gif,image/webp">
+                            <div class="text-xs text-muted mt-1">
+                                Allowed: JPEG, PNG, GIF, WebP (Max: 5MB)<br>
+                                Leave empty to keep current picture
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="form-group">
                     <label>Full Name *</label>
                     <input type="text" name="full_name" class="form-control" value="<?= htmlspecialchars($user['full_name']) ?>" required>

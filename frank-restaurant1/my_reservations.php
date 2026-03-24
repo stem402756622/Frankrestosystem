@@ -149,7 +149,7 @@ foreach ($reservations as $r) {
                     <td>
                         <div class="fw-600"><?= date('M j, Y', strtotime($r['reservation_date'])) ?></div>
                         <div class="text-xs text-muted"><?= date('g:i A', strtotime($r['reservation_time'])) ?></div>
-                        <?php if($r['reschedule_count'] > 0): ?>
+                        <?php if(($r['reschedule_count'] ?? 0) > 0): ?>
                         <div class="text-xs text-warning">Rescheduled <?= $r['reschedule_count'] ?>x</div>
                         <?php endif; ?>
                     </td>

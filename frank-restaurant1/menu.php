@@ -2,6 +2,72 @@
 $pageTitle    = 'Menu & Ordering';
 require_once 'includes/header.php';
 
+// Icon mapping for menu items
+$menu_icons = [
+    'Bruschetta al Pomodoro' => '🍅',
+    'Calamari Fritti' => '🦑',
+    'Charcuterie Board' => '🧀',
+    'Frank Signature Steak' => '🥩',
+    'Sea Bass Piccata' => '🐟',
+    'Mushroom Risotto' => '🍄',
+    'Chicken Marsala' => '🍗',
+    'Tiramisu' => '🍰',
+    'Crème Brûlée' => '🍮',
+    'House Wine (Glass)' => '🍷',
+    'Craft Cocktails' => '🍸',
+    'Sparkling Water' => '💧',
+    'Salmon Teriyaki' => '🍣',
+    'Margherita Pizza' => '🍕',
+    'Caesar Salad' => '🥗',
+    'Fish and Chips' => '🍟',
+    'Pasta Carbonara' => '🍝',
+    'Grilled Vegetables' => '🥦',
+    'Beef Burger' => '🍔',
+    'Fish Tacos' => '🌮',
+    'Vegetable Soup' => '🍲',
+    'Chocolate Cake' => '🎂',
+    'Ice Cream Sundae' => '🍨',
+    'Coffee' => '☕',
+    'Fresh Juice' => '🧃',
+    'Sushi Platter' => '🍱',
+    'Ramen Bowl' => '🍜',
+    'BBQ Ribs' => '🍖',
+    'Garden Salad' => '🥬',
+    'Fruit Smoothie' => '🥤',
+    'Cheese Platter' => '🧈',
+    'Shrimp Scampi' => '🍤',
+    'Lobster Bisque' => '🦞',
+    'Apple Pie' => '🥧',
+    'Brownie Sundae' => '🍫',
+    'Iced Tea' => '🧊',
+    'Lemonade' => '🍋',
+    'Club Sandwich' => '🥪',
+    'French Onion Soup' => '🧅',
+    'Stuffed Mushrooms' => '🍄',
+    'Chocolate Mousse' => '🍫',
+    'Panna Cotta' => '🍮',
+    'Hot Chocolate' => '☕',
+    'Orange Juice' => '🍊',
+    'Tomato Soup' => '🍅',
+    'Garlic Bread' => '🥖',
+    'Caprese Salad' => '🥗',
+    'Beef Tacos' => '🌮',
+    'Chicken Wings' => '🍗',
+    'Onion Rings' => '🧅',
+    'Cheesecake' => '🍰',
+    'Cobb Salad' => '🥗',
+    'Vegetable Stir Fry' => '🥦',
+    'Fruit Tart' => '🥧',
+    'Mint Tea' => '🍵',
+    'Berry Smoothie' => '🥤'
+];
+
+// Function to get icon for menu item
+function getMenuIcon($itemName) {
+    global $menu_icons;
+    return $menu_icons[$itemName] ?? '🍽'; // Default icon if not found
+}
+
 // Fetch items with allergens
 try {
     $items = db()->fetchAll(
@@ -192,6 +258,7 @@ if (empty($recommendations)) {
                 <div style="display:flex; justify-content:space-between;">
                     <div>
                         <div style="font-weight:600; font-size:1.1rem; display:flex; align-items:center; gap:8px; color:var(--text-primary);">
+                            <span style="font-size: 1.2rem;"><?= getMenuIcon(htmlspecialchars($item['name'])) ?></span>
                             <?= htmlspecialchars($item['name']) ?>
                             <span style="color:var(--accent-primary);">₱<?= number_format($item['price'], 2) ?></span>
                         </div>

@@ -72,11 +72,8 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
             <?php navItem('orders.php',   '🧾', 'Orders',   $currentPage); ?>
             
             <?php if($role === 'customer'): ?>
-                <?php navItem('index.php', '🍽️', 'Menu', $currentPage); ?>
                 <?php navItem('my_reservations.php', '📋', 'My Reservations', $currentPage); ?>
-                <?php navItem('queue_status.php', '⏳', 'Queue Status', $currentPage); ?>
                 <?php navItem('favorites.php', '❤️', 'Favorites', $currentPage); ?>
-                <?php navItem('feedback.php', '⭐', 'Feedback', $currentPage); ?>
             <?php else: ?>
                 <?php if(in_array($role, ['admin','manager'])): ?>
                     <?php navItem('admin_menu.php', '📋', 'Menu', $currentPage); ?>
@@ -99,7 +96,6 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
             <?php navItem('reports.php', '📈', 'Reports', $currentPage); ?>
             <?php if(in_array($role, ['admin','manager'])): ?>
                 <?php navItem('peak_hours.php', '⏰', 'Peak Hours', $currentPage); ?>
-                <?php navItem('feedback_analysis.php', '💬', 'Feedback Analysis', $currentPage); ?>
             <?php endif; ?>
             <?php endif; ?>
 
@@ -130,7 +126,6 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
                 <?php if($role==='customer'): ?>
                 <a href="create_reservation.php" class="btn btn-primary btn-sm glow">+ New Reservation</a>
                 <?php elseif(in_array($role,['admin','manager','staff'])): ?>
-                <a href="index.php" class="btn btn-secondary btn-sm" target="_blank">🌐 View Website</a>
                 <a href="create_reservation.php" class="btn btn-primary btn-sm">+ Reservation</a>
                 <?php endif; ?>
             </div>

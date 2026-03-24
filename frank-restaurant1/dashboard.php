@@ -34,13 +34,20 @@ if (in_array($role, ['admin','manager','staff'])) {
     $my_points = db()->fetchOne("SELECT loyalty_points, vip_status FROM users WHERE user_id=?", [$user_id]);
     
     // Feature 15: Follow-Up Notice
-    $unreviewed = db()->fetchOne(
-        "SELECT o.order_id, o.total, o.created_at FROM orders o 
-         LEFT JOIN reviews r ON o.order_id = r.order_id 
-         WHERE o.user_id = ? AND o.status = 'completed' AND r.id IS NULL 
-         ORDER BY o.created_at DESC LIMIT 1",
-        [$user_id]
-    );
+    $unreviewed = null;
+    try {
+        $unreviewed = db()->fetchOne(
+            "SELECT o.order_id, o.total, o.created_at FROM orders o 
+             LEFT JOIN reviews r ON o.order_id = r.order_id 
+             WHERE o.user_id = ? AND o.status = 'completed' AND r.id IS NULL 
+             ORDER BY o.created_at DESC LIMIT 1",
+            [$user_id]
+        );
+    } catch (Exception $e) {
+        // Reviews table doesn't exist, set unreviewed to null
+        $unreviewed = null;
+        error_log("Reviews table not found: " . $e->getMessage());
+    }
 }
 ?>
 

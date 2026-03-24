@@ -35,6 +35,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     db()->execute("UPDATE restaurant_tables SET status='occupied' WHERE table_id=?", [$reservation['table_id']]);
                 }
             }
+            // Mark as no-show
+            elseif ($status === 'no_show') {
+                $reservation = db()->fetchOne("SELECT * FROM reservations WHERE reservation_id=?", [$rid]);
+                if ($reservation) {
+                    // Check if no-show already recorded
+                    $existing_noshow = db()->fetchOne("SELECT id FROM no_shows WHERE reservation_id=?", [$rid]);
+                    
+                    if (!$existing_noshow) {
+                        // Create no-show record (with proper error handling)
+                        try {
+                            // Get customer information safely
+                            $customer_name = $reservation['full_name'] ?? '';
+                            $customer_email = $reservation['email'] ?? '';
+                            $customer_phone = $reservation['phone'] ?? '';
+                            
+                            // If customer info not in reservations, get from users table
+                            if (empty($customer_name) && isset($reservation['user_id'])) {
+                                $user_info = db()->fetchOne("SELECT full_name, email, phone FROM users WHERE user_id = ?", [$reservation['user_id']]);
+                                if ($user_info) {
+                                    $customer_name = $user_info['full_name'];
+                                    $customer_email = $user_info['email'] ?? '';
+                                    $customer_phone = $user_info['phone'] ?? '';
+                                }
+                            }
+                            
+                            // Fallback values if still empty
+                            $customer_name = $customer_name ?: 'Unknown Customer';
+                            $customer_email = $customer_email ?: 'No email';
+                            $customer_phone = $customer_phone ?: 'No phone';
+                            
+                            db()->insert(
+                                "INSERT INTO no_shows (reservation_id, customer_name, customer_email, customer_phone, party_size, reservation_date, reservation_time, reason, action_taken, follow_up, notes, reported_by, reported_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                [
+                                    $rid,
+                                    $customer_name,
+                                    $customer_email,
+                                    $customer_phone,
+                                    $reservation['party_size'] ?? 1,
+                                    $reservation['reservation_date'] ?? date('Y-m-d'),
+                                    $reservation['reservation_time'] ?? '19:00:00',
+                                    'Marked from reservations page',
+                                    'No Action',
+                                    '',
+                                    '',
+                                    $user_id,
+                                    date('Y-m-d H:i:s')
+                                ]
+                            );
+                        } catch (Exception $e) {
+                            // If insert fails, continue with status update
+                            error_log("Could not insert no-show record: " . $e->getMessage());
+                        }
+                    }
+                }
+            }
             // Free table when completed or cancelled
             elseif (in_array($status, ['completed','cancelled','no_show'])) {
                 $reservation = db()->fetchOne("SELECT table_id FROM reservations WHERE reservation_id=?", [$rid]);
@@ -59,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     sendEmail($res['email'], $subject, $message);
                 }
             }
-
+            
             redirect('reservations.php', 'Reservation status updated.', 'success');
         }
     }
@@ -87,7 +142,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         redirect('reservations.php', 'Reservation cancelled.', 'success');
     }
-
     if ($_POST['action'] === 'reschedule') {
         $new_date = sanitize($_POST['new_date']);
         $new_time = sanitize($_POST['new_time']);

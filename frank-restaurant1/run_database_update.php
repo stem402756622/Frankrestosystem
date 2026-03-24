@@ -266,7 +266,6 @@ try {
         
         <div style="text-align: center;">
             <a href="dashboard.php" class="btn">Go to Dashboard</a>
-            <a href="index.php" class="btn">View Website</a>
         </div>
     <?php else: ?>
         <div class="log">

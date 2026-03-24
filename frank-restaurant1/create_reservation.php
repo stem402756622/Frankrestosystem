@@ -167,10 +167,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $table_id = $assigned_table_id;
 
+            // Process coupon code if provided
+            $coupon_code = sanitize($_POST['coupon_code'] ?? '');
+            $discount_amount = 0;
+            $coupon_message = '';
+            
+            if ($coupon_code) {
+                $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at > NOW())", [$coupon_code]);
+                if ($promo) {
+                    // For reservations, we'll store the coupon but apply it to pre-orders only
+                    $coupon_message = "Coupon applied: " . $promo['description'];
+                } else {
+                    $coupon_code = null; // Invalid coupon, don't store
+                }
+            }
+
             // Create reservation
             $rid = db()->insert(
-                "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration]
+                "INSERT INTO reservations (user_id, table_id, reservation_date, reservation_time, party_size, occasion, special_requests, status, priority, estimated_duration, coupon_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                [$res_user_id, $table_id ?: null, $res_date, $res_time, $party_size, $occasion, $special_req, 'pending', $priority, $duration, $coupon_code]
             );
 
         if ($rid) {
@@ -209,10 +224,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 if ($subtotal > 0) {
+                    // Apply coupon discount to pre-order
+                    $discount = 0;
+                    if ($coupon_code) {
+                        $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at > NOW())", [$coupon_code]);
+                        if ($promo) {
+                            if ($promo['discount_type'] === 'percentage') {
+                                $discount = $subtotal * ($promo['discount_value'] / 100);
+                            } else {
+                                $discount = $promo['discount_value'];
+                            }
+                            if ($discount > $subtotal) $discount = $subtotal;
+                            
+                            // Update promo usage
+                            db()->execute("UPDATE promo_codes SET used_count=used_count+1 WHERE id=?", [$promo['id']]);
+                        }
+                    }
+                    
+                    $tax = ($subtotal - $discount) * 0.08;
+                    $total = $subtotal - $discount + $tax;
+                    
                     // Create preorder order
                     $order_id = db()->insert(
-                        "INSERT INTO orders (user_id, table_id, reservation_id, status, subtotal, tax, total, notes) VALUES (?, ?, ?, 'preorder', ?, ?, ?, ?)",
-                        [$res_user_id, $table_id ?: null, $rid, $subtotal, $subtotal * 0.08, $subtotal * 1.08, $preorder_notes]
+                        "INSERT INTO orders (user_id, table_id, reservation_id, status, subtotal, discount_amount, tax, total, notes, promo_code) VALUES (?, ?, ?, 'preorder', ?, ?, ?, ?, ?, ?)",
+                        [$res_user_id, $table_id ?: null, $rid, $subtotal, $discount, $tax, $total, $preorder_notes, $coupon_code]
                     );
                     
                     // Add order items
@@ -325,6 +360,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-group">
                 <label>Special Requests</label>
                 <textarea name="special_requests" class="form-control" placeholder="Dietary requirements, accessibility needs, special arrangements..."><?= htmlspecialchars($_POST['special_requests'] ?? '') ?></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>🎟️ Coupon Code (Optional)</label>
+                <div class="input-group">
+                    <input type="text" name="coupon_code" class="form-control" placeholder="Enter coupon code for discount" value="<?= htmlspecialchars($_POST['coupon_code'] ?? '') ?>">
+                    <button type="button" class="btn btn-secondary" onclick="validateCoupon()">Apply</button>
+                </div>
+                <div id="couponMessage" class="form-text mt-1"></div>
             </div>
 
             <!-- Food Pre-order Section -->
@@ -613,6 +657,33 @@ function increasePreorderQty(itemId) {
 
 function decreasePreorderQty(itemId) {
     PreorderForm.decreaseQty(itemId);
+}
+
+// Coupon validation function
+function validateCoupon() {
+    const couponCode = document.querySelector('input[name="coupon_code"]').value.trim();
+    const messageDiv = document.getElementById('couponMessage');
+    
+    if (!couponCode) {
+        messageDiv.innerHTML = '<span style="color: #6c757d;">Please enter a coupon code</span>';
+        return;
+    }
+    
+    messageDiv.innerHTML = '<span style="color: #007bff;">Validating...</span>';
+    
+    fetch('ajax_promo.php?code=' + encodeURIComponent(couponCode))
+    .then(response => response.json())
+    .then(data => {
+        if (data.valid) {
+            messageDiv.innerHTML = `<span style="color: #28a745;">✅ ${data.message} - Save ₱${data.discount.toFixed(2)}</span>`;
+        } else {
+            messageDiv.innerHTML = `<span style="color: #dc3545;">❌ ${data.message}</span>`;
+        }
+    })
+    .catch(error => {
+        messageDiv.innerHTML = '<span style="color: #dc3545;">Error validating coupon</span>';
+        console.error('Coupon validation error:', error);
+    });
 }
 
 // Update table availability when party size changes

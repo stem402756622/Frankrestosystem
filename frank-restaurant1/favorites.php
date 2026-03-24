@@ -4,14 +4,21 @@ require_once 'includes/header.php';
 
 requireLogin();
 
-$favorites = db()->fetchAll(
-    "SELECT sf.*, mi.name, mi.price, mi.description, mi.image_url 
-     FROM saved_favorites sf
-     JOIN menu_items mi ON sf.menu_item_id = mi.item_id
-     WHERE sf.user_id = ?
-     ORDER BY sf.created_at DESC",
-    [$user_id]
-);
+$favorites = null;
+try {
+    $favorites = db()->fetchAll(
+        "SELECT sf.*, mi.name, mi.price, mi.description, mi.image_url 
+         FROM saved_favorites sf
+         JOIN menu_items mi ON sf.menu_item_id = mi.item_id
+         WHERE sf.user_id = ?
+         ORDER BY sf.created_at DESC",
+        [$user_id]
+    );
+} catch (Exception $e) {
+    // saved_favorites table doesn't exist, set favorites to empty
+    $favorites = [];
+    error_log('Saved favorites table not found: ' . $e->getMessage());
+}
 ?>
 
 <div class="flex justify-between items-center mb-4">

@@ -52,6 +52,57 @@ $topCustomers = db()->fetchAll(
      WHERE u.role='customer' GROUP BY u.user_id ORDER BY visits DESC LIMIT 8"
 );
 
+// Customer Feedback Analytics
+try {
+    // Check if feedback table exists
+    $feedbackTableCheck = db()->fetchOne("SHOW TABLES LIKE 'customer_feedback'");
+    
+    if ($feedbackTableCheck) {
+        // Feedback statistics
+        $totalFeedback = db()->fetchOne("SELECT COUNT(*) as cnt FROM customer_feedback WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['cnt'] ?? 0;
+        $avgRating = db()->fetchOne("SELECT AVG(rating) as avg FROM customer_feedback WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['avg'] ?? 0;
+        $recommendRate = db()->fetchOne("SELECT AVG(would_recommend) * 100 as rate FROM customer_feedback WHERE would_recommend IS NOT NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['rate'] ?? 0;
+        
+        // Recent feedback with customer details
+        $recentFeedback = db()->fetchAll(
+            "SELECT cf.*, u.full_name, u.email, u.phone, o.order_id, o.total as order_total, o.created_at as order_date, r.reservation_id, r.reservation_date, r.reservation_time 
+             FROM customer_feedback cf 
+             LEFT JOIN users u ON cf.user_id = u.user_id 
+             LEFT JOIN orders o ON cf.order_id = o.order_id 
+             LEFT JOIN reservations r ON cf.reservation_id = r.reservation_id 
+             WHERE cf.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+             ORDER BY cf.created_at DESC 
+             LIMIT 10"
+        );
+        
+        // Rating distribution
+        $ratingDistribution = db()->fetchAll("SELECT rating, COUNT(*) as count FROM customer_feedback WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY rating ORDER BY rating");
+        
+        // Category averages
+        $avgService = db()->fetchOne("SELECT AVG(service_rating) as avg FROM customer_feedback WHERE service_rating > 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['avg'] ?? 0;
+        $avgFood = db()->fetchOne("SELECT AVG(food_rating) as avg FROM customer_feedback WHERE food_rating > 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['avg'] ?? 0;
+        $avgAtmosphere = db()->fetchOne("SELECT AVG(atmosphere_rating) as avg FROM customer_feedback WHERE atmosphere_rating > 0 AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")['avg'] ?? 0;
+    } else {
+        $totalFeedback = 0;
+        $avgRating = 0;
+        $recommendRate = 0;
+        $recentFeedback = [];
+        $ratingDistribution = [];
+        $avgService = 0;
+        $avgFood = 0;
+        $avgAtmosphere = 0;
+    }
+} catch (Exception $e) {
+    $totalFeedback = 0;
+    $avgRating = 0;
+    $recommendRate = 0;
+    $recentFeedback = [];
+    $ratingDistribution = [];
+    $avgService = 0;
+    $avgFood = 0;
+    $avgAtmosphere = 0;
+}
+
 $noShowRate = $totalRes > 0 ? round($noShowRes / $totalRes * 100) : 0;
 $cancelRate = $totalRes > 0 ? round($cancelledRes / $totalRes * 100) : 0;
 $completionRate = $totalRes > 0 ? round($completedRes / $totalRes * 100) : 0;
@@ -96,6 +147,122 @@ $completionRate = $totalRes > 0 ? round($completedRes / $totalRes * 100) : 0;
 </div>
 
 <div class="content-grid mb-4">
+    <!-- Customer Feedback Analytics -->
+    <div class="card animate-in">
+        <div class="card-header">
+            <h3 class="card-title">💬 Customer Feedback Analytics</h3>
+            <span class="badge badge-info">Last 30 Days</span>
+        </div>
+        
+        <?php if ($totalFeedback > 0): ?>
+        <!-- Feedback Stats -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="text-align: center; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm);">
+                <div class="stat-value" style="font-size: 1.5rem;"><?= $totalFeedback ?></div>
+                <div class="stat-label" style="font-size: 0.8rem;">Total Feedback</div>
+            </div>
+            <div style="text-align: center; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm);">
+                <div class="stat-value" style="font-size: 1.5rem;"><?= number_format($avgRating, 1) ?> ⭐</div>
+                <div class="stat-label" style="font-size: 0.8rem;">Avg Rating</div>
+            </div>
+            <div style="text-align: center; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm);">
+                <div class="stat-value" style="font-size: 1.5rem;"><?= number_format($recommendRate, 1) ?>%</div>
+                <div class="stat-label" style="font-size: 0.8rem;">Would Recommend</div>
+            </div>
+        </div>
+        
+        <!-- Category Performance -->
+        <div style="margin-bottom: 1.5rem;">
+            <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-primary);">Category Performance</h4>
+            <div style="display: grid; gap: 0.5rem;">
+                <div class="flex justify-between items-center">
+                    <span style="font-size: 0.8rem;">🍽️ Food Quality</span>
+                    <span style="font-size: 0.8rem; font-weight: 600;"><?= number_format($avgFood, 1) ?> ⭐</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar" style="width: <?= ($avgFood / 5) * 100 ?>%; background: linear-gradient(90deg, #28a745, #20c997);"></div>
+                </div>
+                
+                <div class="flex justify-between items-center">
+                    <span style="font-size: 0.8rem;">👥 Service</span>
+                    <span style="font-size: 0.8rem; font-weight: 600;"><?= number_format($avgService, 1) ?> ⭐</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar" style="width: <?= ($avgService / 5) * 100 ?>%; background: linear-gradient(90deg, #007bff, #0056b3);"></div>
+                </div>
+                
+                <div class="flex justify-between items-center">
+                    <span style="font-size: 0.8rem;">🎨 Atmosphere</span>
+                    <span style="font-size: 0.8rem; font-weight: 600;"><?= number_format($avgAtmosphere, 1) ?> ⭐</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                    <div class="progress-bar" style="width: <?= ($avgAtmosphere / 5) * 100 ?>%; background: linear-gradient(90deg, #6f42c1, #5a32a3);"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Feedback -->
+        <div>
+            <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-primary);">Recent Customer Feedback</h4>
+            <div style="display: grid; gap: 0.75rem; max-height: 400px; overflow-y: auto;">
+                <?php foreach ($recentFeedback as $feedback): ?>
+                <div style="padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid var(--accent-primary);">
+                    <!-- Customer Info & Rating -->
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <div style="font-weight: 600; font-size: 0.85rem;"><?= htmlspecialchars($feedback['full_name'] ?? 'Anonymous') ?></div>
+                            <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">
+                                <?php if ($feedback['email']): ?>📧 <?= htmlspecialchars($feedback['email']) ?><?php endif; ?>
+                                <?php if ($feedback['phone']): ?> • 📱 <?= htmlspecialchars($feedback['phone']) ?><?php endif; ?>
+                            </div>
+                            <div style="font-size: 0.7rem; color: var(--text-secondary);">
+                                📅 <?= date('M j, Y g:i A', strtotime($feedback['created_at'])) ?>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 0.8rem; margin-bottom: 0.25rem;">
+                                <?php for ($i = 1; $i <= 5; $i++): ?>
+                                <span class="<?= $i <= $feedback['rating'] ? '' : 'text-muted' ?>" style="font-size: 0.8rem;">⭐</span>
+                                <?php endfor; ?>
+                            </div>
+                            <span class="badge badge-primary" style="font-size: 0.6rem;"><?= $feedback['rating'] ?>/5</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Feedback Text -->
+                    <div style="font-style: italic; font-size: 0.8rem; color: var(--text-primary); margin-bottom: 0.5rem; line-height: 1.4;">
+                        <?= htmlspecialchars($feedback['feedback_text']) ?>
+                    </div>
+                    
+                    <!-- Recommendations -->
+                    <?php if ($feedback['would_recommend'] !== null || $feedback['visit_again'] !== null): ?>
+                    <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
+                        <?php if ($feedback['would_recommend'] !== null): ?>
+                        <span class="badge <?= $feedback['would_recommend'] ? 'badge-success' : 'badge-secondary' ?>" style="font-size: 0.6rem;">
+                            <?= $feedback['would_recommend'] ? '👍 Recommend' : '👎 No Recommend' ?>
+                        </span>
+                        <?php endif; ?>
+                        <?php if ($feedback['visit_again'] !== null): ?>
+                        <span class="badge <?= $feedback['visit_again'] ? 'badge-primary' : 'badge-secondary' ?>" style="font-size: 0.6rem;">
+                            <?= $feedback['visit_again'] ? '🔄 Return' : '🚫 No Return' ?>
+                        </span>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        
+        <?php else: ?>
+        <div class="empty-state" style="padding: 2rem; text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
+            <div class="empty-text">No customer feedback yet</div>
+            <p class="text-muted">Customer feedback will appear here once customers start submitting reviews.</p>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
     <!-- Reservation Analytics -->
     <div class="card animate-in">
         <div class="card-header">

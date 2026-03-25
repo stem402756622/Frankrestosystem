@@ -79,6 +79,7 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
                 <?php navItem('my_reservations.php', '📋', 'My Reservations', $currentPage); ?>
                 <?php navItem('favorites.php', '❤️', 'Favorites', $currentPage); ?>
                 <?php navItem('loyalty.php', '🎯', 'Loyalty', $currentPage); ?>
+                <?php navItem('feedback.php', '⭐', 'Feedback', $currentPage); ?>
             <?php else: ?>
                 <?php if(in_array($role, ['admin','manager'])): ?>
                     <?php navItem('admin_menu.php', '📋', 'Menu', $currentPage); ?>
@@ -103,7 +104,7 @@ function navItem($href, $icon, $label, $current, $badge = 0) {
                 <?php navItem('peak_hours.php', '⏰', 'Peak Hours', $currentPage); ?>
             <?php endif; ?>
             <?php endif; ?>
-
+            
             <div class="nav-section-title">Account</div>
             <?php navItem('logout.php',  '🚪', 'Logout',   ''); ?>
         </div>

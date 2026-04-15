@@ -173,7 +173,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $coupon_message = '';
             
             if ($coupon_code) {
-                $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at > NOW())", [$coupon_code]);
+                try {
+                    $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (valid_until IS NULL OR valid_until > CURDATE())", [$coupon_code]);
+                } catch (Exception $e) {
+                    $promo = null; // Table doesn't exist or column issue
+                }
                 if ($promo) {
                     // For reservations, we'll store the coupon but apply it to pre-orders only
                     $coupon_message = "Coupon applied: " . $promo['description'];
@@ -188,12 +192,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $loyalty_reward = null;
             
             if ($loyalty_reward_id && $res_user_id) {
-                $reward = db()->fetchOne(
-                    "SELECT * FROM loyalty_rewards 
-                     WHERE id = ? AND is_active = 1 
-                     AND (expires_at IS NULL OR expires_at > NOW())",
-                    [$loyalty_reward_id]
-                );
+                try {
+                    $reward = db()->fetchOne(
+                        "SELECT * FROM loyalty_rewards 
+                         WHERE id = ? AND is_active = 1 
+                         AND (expires_at IS NULL OR expires_at > NOW())",
+                        [$loyalty_reward_id]
+                    );
+                } catch (Exception $e) {
+                    $reward = null; // Table doesn't exist
+                }
                 
                 if ($reward) {
                     $user_points = db()->fetchOne("SELECT loyalty_points FROM users WHERE user_id = ?", [$res_user_id])['loyalty_points'] ?? 0;
@@ -305,7 +313,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Apply coupon discount to pre-order
                     $discount = 0;
                     if ($coupon_code) {
-                        $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at > NOW())", [$coupon_code]);
+                        try {
+                            $promo = db()->fetchOne("SELECT * FROM promo_codes WHERE code=? AND is_active=1 AND (valid_until IS NULL OR valid_until > CURDATE())", [$coupon_code]);
+                        } catch (Exception $e) {
+                            $promo = null; // Table doesn't exist or column issue
+                        }
                         if ($promo) {
                             if ($promo['discount_type'] === 'percentage') {
                                 $discount = $subtotal * ($promo['discount_value'] / 100);
